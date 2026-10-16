@@ -2,9 +2,9 @@
 """Interactive terminal wizard for batch certificate PDFs.
 
 Install: python -m pip install pypdf reportlab pillow
-Run:     python certificate_tui.py
+Run:     python bazite.py
 
-CSV must contain a column named exactly: Name
+CSV must contain a column named exactly: `Name`
 """
 import csv, re
 from io import BytesIO
@@ -25,12 +25,49 @@ FONTS = [
     ("Courier-Bold", "Courier-Bold"),
 ]
 
+# Terminal styling only; certificate-generation behavior is unchanged.
+class UI:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    GREEN = "\033[92m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+
+    @staticmethod
+    def paint(text, *styles):
+        import os, sys
+        if os.environ.get("NO_COLOR") or not sys.stdout.isatty():
+            return str(text)
+        return "".join(styles) + str(text) + UI.RESET
+
+    @staticmethod
+    def section(title):
+        line = "─" * 58
+        print("\n" + UI.paint(line, UI.CYAN))
+        print(UI.paint("  " + title.upper(), UI.BOLD, UI.CYAN))
+        print(UI.paint(line, UI.CYAN))
+
+    @staticmethod
+    def error(text):
+        print(UI.paint("  ✖ " + str(text), UI.RED))
+
+    @staticmethod
+    def success(text):
+        print(UI.paint("  ✔ " + str(text), UI.GREEN))
+
 def ask(prompt, default=""):
-    value = input(f"{prompt} [{default}]: ").strip()
+    marker = UI.paint("›", UI.GREEN, UI.BOLD)
+    hint = UI.paint(f" [{default}]", UI.DIM) if default != "" else ""
+    value = input(f"{marker} {prompt}{hint}: ").strip()
     return value or str(default)
 
 def yesno(prompt, default=True):
-    value = input(f"{prompt} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
+    options = "Y/n" if default else "y/N"
+    marker = UI.paint("›", UI.GREEN, UI.BOLD)
+    value = input(f"{marker} {prompt} {UI.paint('[' + options + ']', UI.DIM)}: ").strip().lower()
     return default if not value else value in ("y", "yes")
 
 def existing_file(prompt, default, extensions):
@@ -38,7 +75,7 @@ def existing_file(prompt, default, extensions):
         p = Path(ask(prompt, default)).expanduser()
         if p.is_file() and p.suffix.lower() in extensions:
             return p.resolve()
-        print(f"File not found or unsupported. Allowed: {', '.join(sorted(extensions))}")
+        UI.error(f"File not found or unsupported. Allowed: {', '.join(sorted(extensions))}")
 
 def number(prompt, default, low, high):
     while True:
@@ -48,7 +85,7 @@ def number(prompt, default, low, high):
                 return value
         except ValueError:
             pass
-        print(f"Enter a number from {low} to {high}.")
+        UI.error(f"Enter a number from {low} to {high}.")
 
 def read_names(path):
     with path.open(newline="", encoding="utf-8-sig") as f:
@@ -88,10 +125,10 @@ def load_template(path):
     return PdfReader(buf).pages[0], buf
 
 def choose_font():
-    print("\nFont options:")
+    UI.section("02 · Typography — choose a font")
     for i, (label, _) in enumerate(FONTS, 1):
-        print(f"  {i}. {label}")
-    print(f"  {len(FONTS)+1}. Load custom .ttf/.otf font")
+        print(f"  {UI.paint(f'{i:>2}', UI.GREEN, UI.BOLD)}  {label}")
+    print(f"  {UI.paint(str(len(FONTS)+1), UI.GREEN, UI.BOLD)}  Load custom .ttf/.otf font")
     while True:
         try:
             choice = int(ask("Choose font number", 2))
@@ -103,10 +140,10 @@ def choose_font():
                     pdfmetrics.registerFont(TTFont("CustomFont", str(path)))
                     return "CustomFont"
                 except Exception as e:
-                    print(f"Couldn't load font: {e}")
+                    UI.error(f"Couldn't load font: {e}")
         except ValueError:
             pass
-        print("Choose one of the listed numbers.")
+        UI.error("Choose one of the listed numbers.")
 
 def make_overlay(w, h, name, cfg):
     buf = BytesIO()
@@ -125,28 +162,40 @@ def make_overlay(w, h, name, cfg):
     return PdfReader(buf).pages[0], buf
 
 def main():
-    print("="*56 + "\n       CERTIFICATE GENERATOR — TERMINAL WIZARD\n" + "="*56)
-    print("Press Enter to accept each default value.")
-    template = existing_file("Template/background PDF or image", "Official Certificate Templates.pdf",
+    print()
+    print(UI.paint("  ╭────────────────────────────────────────────────────────╮", UI.GREEN, UI.BOLD))
+    print(UI.paint("  │", UI.GREEN, UI.BOLD) + UI.paint("             CERTIFICATE STUDIO", UI.BOLD, UI.WHITE) + UI.paint("  ·  TUI             │", UI.CYAN, UI.BOLD))
+    print(UI.paint("  ╰────────────────────────────────────────────────────────╯", UI.GREEN, UI.BOLD))
+    print(UI.paint("  Batch certificate maker  /  PDF · PNG · JPG", UI.DIM))
+    print(UI.paint("  Press Enter to accept a suggested default.", UI.DIM))
+
+    UI.section("01 · Files & output")
+    template = existing_file("Template/background PDF or image", "`template.pdf`",
                              {".pdf", ".png", ".jpg", ".jpeg"})
-    csvpath = existing_file("Participant CSV", "participants.csv", {".csv"})
+    csvpath = existing_file("Participant CSV", "`participants.csv`", {".csv"})
     out = Path(ask("Output folder", "certificates")).expanduser()
     out.mkdir(parents=True, exist_ok=True)
+    UI.success(f"Template: {template.name}")
+    UI.success(f"Participant list: {csvpath.name}")
+    UI.success(f"Output folder: {out}")
 
     font = choose_font()
+    UI.section("03 · Text appearance")
     size = number("Starting font size (pt)", 26, 1, 200)
     min_size = number("Minimum font size for long names (pt)", 15, 1, size)
     color = ask("Text colour in hex", "#073D3B")
     if not re.fullmatch(r"#?[0-9a-fA-F]{6}", color):
-        print("Invalid hex colour; using #073D3B.")
+        UI.error("Invalid hex colour; using #073D3B.")
         color = "#073D3B"
     if not color.startswith("#"):
         color = "#" + color
 
-    print("\nPlacement settings:")
+    UI.section("04 · Name placement")
     x_pct = number("Horizontal position (% of page width; 50 = centre)", 50, 0, 100)
     top = number("Name baseline distance down from TOP edge (points)", 303, 0, 100000)
     max_width = number("Maximum name width (points)", 520, 10, 100000)
+
+    UI.section("05 · Export")
     combined = yesno("Also create a combined PDF?", True)
     combined_name = ask("Combined PDF filename", "All_Participation_Certificates.pdf")
 
@@ -158,10 +207,16 @@ def main():
             raise ValueError(f"Top offset {top} is outside page height {h:.1f} pt.")
         cfg = dict(font=font, size=size, min_size=min_size, color=color,
                    x_pct=x_pct, top=top, max_width=max_width)
-        print(f"\nParticipants: {len(names)} | Page: {w:.1f} × {h:.1f} pt")
-        print(f"Font: {font} | Size: {size} pt | Colour: {color}")
-        if not yesno("Generate certificates now?", True):
-            print("Cancelled.")
+        UI.section("Review settings")
+        print(f"  Participants  {UI.paint(str(len(names)), UI.BOLD, UI.GREEN)}")
+        print(f"  Page size     {w:.1f} × {h:.1f} pt")
+        print(f"  Font          {font} · {size:g} pt (minimum {min_size:g} pt)")
+        print(f"  Colour        {color}")
+        print(f"  Name anchor   x={x_pct:g}% · {top:g} pt from top")
+        print(f"  Maximum width {max_width:g} pt")
+        print(f"  Output        {out.resolve()}")
+        if not yesno("Generate certificates with these settings?", True):
+            print(UI.paint("\n  Cancelled. No certificates generated.", UI.YELLOW))
             return
 
         merged_pages = []
@@ -178,7 +233,10 @@ def main():
             with target.open("wb") as f:
                 writer.write(f)
             merged_pages.append(base)
-            print(f"[{i}/{len(names)}] {target.name}")
+            bar_width = 22
+            filled = int(bar_width * i / len(names))
+            bar = "█" * filled + "░" * (bar_width - filled)
+            print(f"  {UI.paint(bar, UI.GREEN)}  {i:>3}/{len(names):<3}  {target.name}")
             overlay_buf.close()
 
         if combined:
@@ -188,10 +246,16 @@ def main():
             target = out / combined_name
             with target.open("wb") as f:
                 writer.write(f)
-            print(f"\nCombined PDF: {target}")
-        print(f"\nFinished. Certificates saved to: {out.resolve()}")
+            UI.success(f"Combined PDF created: {target}")
+        print()
+        print(UI.paint("  ╭────────────────────────────────────────────────────────╮", UI.GREEN, UI.BOLD))
+        print(UI.paint("  │  ✓  ALL CERTIFICATES GENERATED SUCCESSFULLY             │", UI.GREEN, UI.BOLD))
+        print(UI.paint("  ╰────────────────────────────────────────────────────────╯", UI.GREEN, UI.BOLD))
+        print(f"  {len(names)} individual certificate(s)")
+        print(f"  Saved to: {out.resolve()}")
     except Exception as e:
-        print(f"\nERROR: {e}\nCheck the file paths and settings, then try again.")
+        UI.error(str(e))
+        print(UI.paint("  Check the file paths and settings, then try again.", UI.DIM))
 
 if __name__ == "__main__":
     main()
