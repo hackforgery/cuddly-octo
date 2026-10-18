@@ -1,0 +1,122 @@
+Metadata-Version: 2.4
+Name: certmailer
+Version: 0.1.0
+Summary: Cross-platform TUI prototype for matching and emailing participant certificates
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: textual<2.0,>=0.80
+Requires-Dist: openpyxl<4.0,>=3.1
+Requires-Dist: platformdirs<5.0,>=4.2
+Requires-Dist: google-api-python-client<3.0,>=2.130
+Requires-Dist: google-auth-httplib2<1.0,>=0.2
+Requires-Dist: google-auth-oauthlib<2.0,>=1.2
+Requires-Dist: jinja2<4.0,>=3.1
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.5; extra == "dev"
+
+# CertMailer — Certificate Delivery TUI prototype
+
+A cross-platform Python terminal dashboard for matching participant spreadsheets to individual PDF certificates, reviewing the manifest, testing a personalized Gmail message, and sending only confidently matched recipients.
+
+**This is a prototype. Run matching and inspect the report before authorizing any live batch.** It does not modify your certificate-generation scripts or source PDFs.
+
+## Features
+
+- Textual dashboard with paths, column overrides, match table, preview, test-send, and explicit live-send confirmation.
+- CSV, XLSX, and XLSM participant sheets.
+- Automatic detection of common `Name`, `Email`, and `Index` column names; manual column overrides are available.
+- PDF filename discovery for patterns like `001_Arpana_Oraon.pdf`.
+- Conservative normalized-name matching. Duplicate names, missing certificates, invalid email addresses, and duplicate email addresses are not eligible for sending.
+- Index values are not assumed to be zero- or one-based. The first prototype does not silently apply an index offset.
+- Gmail API with OAuth Desktop-app credentials; no Gmail password is collected.
+- Test email, explicit `SEND` confirmation, SQLite attempt history, CSV reports, and no automatic retry of failed/uncertain submissions.
+
+## Requirements
+
+- Python 3.11 or newer.
+- Gmail account and internet access for OAuth/email delivery.
+- Google Cloud OAuth Desktop app credentials only if you want to test/send email. Matching and CSV export work offline.
+
+## Install
+
+### Linux / macOS
+
+```bash
+cd certmailer-prototype
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+pytest
+certmailer
+```
+
+### Windows PowerShell
+
+```powershell
+cd certmailer-prototype
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+pytest
+certmailer
+```
+
+If PowerShell blocks activation, you can invoke the environment's Python directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m certmailer.app
+```
+
+## Set up Gmail OAuth (one time)
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or choose a project.
+3. Enable the **Gmail API** for that project.
+4. Configure the OAuth consent screen for your use case. If the app is in Testing mode, add the Gmail account you will use as a test user. Google's current consent-screen requirements may vary by account type and organization.
+5. Create an OAuth client ID with application type **Desktop app**.
+6. Download the client JSON and store it in a private location outside this project, for example `~/private/google-oauth-client.json` or `%USERPROFILE%\private\google-oauth-client.json`.
+7. In the TUI, enter that file's path in **OAuth client JSON**. Choose **Authenticate + Send Test**. A browser opens for authorization; review the requested Gmail send permission.
+8. Send a test to an inbox you control. Verify the subject, HTML formatting, and PDF attachment before live sending.
+
+The app stores its OAuth token under the operating system's user configuration directory using `platformdirs`. Do not commit the client JSON or token to Git. The Gmail scope used is `gmail.send`.
+
+Official Google docs:
+- [Gmail API Python quickstart](https://developers.google.com/workspace/gmail/api/quickstart/python)
+- [Send email messages](https://developers.google.com/workspace/gmail/api/guides/sending)
+
+## Use the dashboard
+
+1. Enter the path to the participant CSV/XLSX and the directory containing PDF certificates.
+2. Optional: fill in the exact column headers for name, email, and index. Leave blank to auto-detect common headers.
+3. Select **Scan & Match**. This does not send email.
+4. Review every row and resolve all ambiguous/unmatched records in your source data. Export the preflight CSV and inspect it.
+5. Edit the subject and HTML body. Use `{{ name }}` to personalize the greeting/body.
+6. Select **Preview Sample**. It logs the sample recipient, subject, attachment name, and rendered body; it does not send.
+7. Enter a test recipient address and select **Authenticate + Send Test**. Check the actual inbox and attachment.
+8. Only after checking the test, type `SEND` exactly and select **Send Valid Matches**.
+9. Inspect the delivery report. `accepted` means Gmail accepted the API submission, not that the recipient's inbox delivery is guaranteed.
+
+## Matching policy and known limitation
+
+The prototype's matching engine uses normalized exact names (case and separators are normalized). It intentionally does **not** infer a `+1` or `-1` offset between spreadsheet indexes and PDF sequence numbers. The supplied pattern may be one-based while a sheet index is zero-based, so applying an offset without confirmation could attach the wrong person's certificate. Ambiguous and duplicate names are held for review.
+
+For a production version, add an explicit index-offset choice (0-based, 1-based, or ignore index), a row-level manual match editor, and a persistent confirmation of the selected matching policy. Do not use fuzzy matching to auto-send certificates without human review.
+
+## Safety / prototype limitations
+
+- The send operation is sequential and currently runs in the UI thread; the dashboard may not repaint/respond while an API call or OAuth flow is in progress. This should be moved to a background worker before relying on it for a large production batch.
+- Retry policy is conservative: the app does not automatically retry failed or uncertain submissions. If a request fails after Gmail accepted it, manually reconcile before trying again.
+- The stable batch fingerprint prevents straightforward resends for the same unchanged input/manifest, but editing inputs creates a new batch identity. Review the history/report before re-running.
+- No guarantee of exactly-once email delivery is possible from a client alone. The provider message ID and local history help with reconciliation.
+- The current HTML renderer supports the `{{ name }}` placeholder only; it is not a general-purpose template engine.
+- Email validation is intentionally basic and cannot prove an address exists.
+- The report contains participant names, email addresses, filenames, timestamps, and error text. Treat it as personal data and store/share it accordingly.
+- Verify your Gmail account's sending limits and organizational policies before sending a large batch.
+
+## User data
+
+Reports and the SQLite history are stored in the OS-specific application data directory (`certmailer/reports` and `delivery.sqlite3`). OAuth token data is stored in the OS-specific application config directory. Paths are printed at startup. Keep those locations private.

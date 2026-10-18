@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/certmailer/__init__.py
+src/certmailer/app.py
+src/certmailer/mailer.py
+src/certmailer/matching.py
+src/certmailer/reporting.py
+src/certmailer.egg-info/PKG-INFO
+src/certmailer.egg-info/SOURCES.txt
+src/certmailer.egg-info/dependency_links.txt
+src/certmailer.egg-info/entry_points.txt
+src/certmailer.egg-info/requires.txt
+src/certmailer.egg-info/top_level.txt
+tests/test_matching.py

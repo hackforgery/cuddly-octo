@@ -1,0 +1,2 @@
+[console_scripts]
+certmailer = certmailer.app:main
